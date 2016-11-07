@@ -22,6 +22,35 @@ import requests
 import arrow
 
 
+def lat_validate(input):
+    # this will throw a type error if input is not correct.
+    try:
+        lat = float(input)
+
+    # If it's not a valid floating point.
+    except:
+        return 0
+
+    if abs(lat) <= 90:
+        return 1
+    else:
+        return 0
+
+
+def lng_validate(input):
+    # this will throw a type error if input is not correct.
+    try:
+        lng = float(input)
+    # if it's not a valid floating point number.
+    except:
+        return 0
+
+    if abs(lng) <= 180:
+        return 1
+    else:
+        return 0
+
+
 @begin.start(auto_convert=True)
 def main(lat='40.7128',
          lng='-74.0059',
@@ -29,9 +58,23 @@ def main(lat='40.7128',
     "Returns the sunrise and/or sunset time for a given day."
 
     if date:
-        a_date = arrow.get(date)
+        try:
+            a_date = arrow.get(date)
+        except arrow.parser.ParserError:
+            print "%s is not a valid date." % (date)
+            print "Please provide a valid date of the form YYYY-MM-DD"
+            return
     else:
         a_date = arrow.now()
+    if not lat_validate(lat):
+        print "%s is not a valid latitude." % (lat)
+        print "Please only use a floating point number betwen -90 and 90."
+        return
+
+    if not lng_validate(lng):
+        print "%s is not a valid longitude." % (lng)
+        print "Please only use a floating point number betwen -180 and 180."
+        return
     payload = {'lat': lat,
                'lng': lng,
                'date': a_date.format('YYYY-MM-DD'),

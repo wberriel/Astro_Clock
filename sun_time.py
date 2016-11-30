@@ -1,14 +1,3 @@
-# Script Name   : sun_time
-# Author        : William Berriel
-# Created       : Nov 6 2016
-# Last Modified :
-# Version       : 0.01
-
-# Modifications :
-
-# Description   : This script will tell you the time for sunrise/sunset based
-#   based on a logitude/latitude and a day. Defaults to today. It also is a
-#   test platform for the begins library.
 #
 #   The library uses sunrise-sunset.org for all time calculations.
 
@@ -57,8 +46,18 @@ def cosDegree(x):
     return math.cos(math.radians(x))
 
 
+def acosDegree(x):
+    # acos expects a value between -1 and 1 and returns it in radians
+    return math.degrees(math.acos(x))
+
+
 def sinDegree(x):
     return math.sin(math.radians(x))
+
+
+def asinDegree(x):
+    # asin expects a value between -1 and 1 and returns it in radians
+    return math.degrees(math.asin(x))
 
 
 def tanDegree(x):
@@ -70,7 +69,12 @@ def atanDegree(x):
     return math.degrees(math.atan(x))
 
 
-def json_time(lat, lng, date, timezone):
+def atan2Degree(x, y):
+    # atan2 uses a vector, thus 2 inputs
+    return math.degrees(math.atan2(x, y))
+
+
+def json_time(lat, lng, date):
 
     payload = {'lat': lat,
                'lng': lng,
@@ -83,37 +87,97 @@ def json_time(lat, lng, date, timezone):
 
         if parsed_JSON['status'] == 'OK':
             results = parsed_JSON['results']
-            sunrise_time = arrow.get(results['sunrise']).to(timezone)
+            sunrise_time = arrow.get(results['sunrise'],)
 
-            sunset_time = arrow.get(results['sunset']).to(timezone)
+            sunset_time = arrow.get(results['sunset'],)
 
             return (sunrise_time, sunset_time)
     else:
         resp.raise_for_status()
 
 
+# Returns the Julian Day, which is day from the start of the Julian Calendar.
+# The formula (based on UTC) is:
+# Floor(365.25 *(Year + 4716)) + Floor(30.6001 * (Month + 1)) + Day + B -
+# 1524.5
+def getJD(date):
+    # The date needs to be in UTC
+    utcDate = date.to('UTC')
+
+    print "date: %s and utcDate: %s" %(date, utcDate)
+    year = utcDate.year
+    month = utcDate.month
+    day = float(utcDate.day)
+    hour = utcDate.hour
+    minute = utcDate.minute
+
+    # if the current month is less than or equal to 2, we need to decrement the
+    # year and add 12 to the month.
+    if month <= 2:
+        year -= 1
+        month += 12
+
+    # adjust the day by the hour and minute as fractions of a day.
+    day = day + hour/24.0 + minute/1440.0
+
+    # leap year adjustments:
+    B = 2 - int(year/100) + int(year/400)
+
+    JD = int(365.25 * (year + 4716)) + int(30.6001 * (month + 1)) + day + \
+        B - 1524.5
+
+    return JD
+
+
+def JDtoDate(JD):
+    JD = JD+.5
+    Z = int(JD)
+    F = JD-Z
+
+    alpha = int((Z-1867216.25)/36524.25)
+    A = Z+1+alpha - int(alpha/4)
+
+    B = A+1524
+    C = int((B-122.1)/365.25)
+    D = int(365.25*C)
+    E = int((B-D)/30.6001)
+
+    day = B - D - int(30.6001 * E)
+    hour = int(F * 24)
+    minute = int((F - (hour / 24.0)) * 1440)
+    second = int((F - (hour / 24.0) - (minute / 1440.0)) * 86400)
+
+    if(E > 13.5):
+        month = int(E - 13)
+    else:
+        month = int(E - 1)
+
+    if(month > 2):
+        year = int(C-4716)
+    else:
+        year = int(C-4715)
+
+    dateString = "%04d-%02d-%02dT%02d:%02d:%02d-00:00" % (year, month, day,
+                                                          hour, minute, second)
+    return arrow.get(dateString)
+
+
 # astro_time calculates the solar position astronomically. It is taken from an
-# algorithm first published in Almanac for Computers, 1990. It's found here:
-# http://williams.best.vwh.net/sunrise_sunset_algorithm.htm.
-def astro_time(lat, lng, date):
+# algorithm first published here:
+# http://www.nrel.gov/docs/fy08osti/34302.pdf
+def astro_time(latS, lngS, date):
 
-    # The first step is convert date to day of the year.
-    # In arrow format "DDDD" is the day of the year.
-    # Convert this to an integer and we have the numerical day of the year.
-    day = int(date.format("DDDD"))
+    # First we need the Julian Date.
+    JD = getJD(date)
 
-    # The second step is to convert longitude to an hour value.
-    # This is longitude /15 = longitude hours. This is because 360/24 = 15.
-    lng_Hour = lng / 15
-
-    t_sunRise = day + ((6-lng_Hour)/24)
-    t_sunset = day + ((18-lng_Hour)/24)
+    lat = float(latS)
+    lng = float(lngS)
 
     # We need to calculate the Mean Anomaly (difference in sun's motion from
     # a circle. We're going to use the one from AA:
     # http://aa.quae.nl/en/reken/zonpositie.html#mjx-eqn-eqm-aarde
     # It should be less than 1% off, so not a huge deal.
-    M = (0.9856 * day - 3.59) % 360
+    M = (357.52 + 0.9856 * (JD - 2451545)) % 360
 
     # Need to find the true center vs. the mean center. According to
     # http://aa.quae.nl/en/reken/zonpositie.html#mjx-eqn-eqm-aarde again, we
@@ -135,8 +199,56 @@ def astro_time(lat, lng, date):
     RA = L - (2.4657*sinDegree(2*L)) + (0.0529*sinDegree(4*L)) -\
         (0.0014*sinDegree(6*L))
 
-    D = (22.7908*sinDegree(x)) + (0.5991 * math.pow(sinDegree(x), 3)) + \
-        (0.0492*math.pow(sinDegree(x), 5))
+    D = (22.7908*sinDegree(L)) + (0.5991 * math.pow(sinDegree(L), 3)) + \
+        (0.0492*math.pow(sinDegree(L), 5))
+
+    # Need to calculate the Mean Sidereal Time for the location, using the
+    # following approximation from AA:
+    # ST = (280.14 + 360.98*(int(JD)-2451545) - lat)mod 360
+    ST = (280.14 + 360.98 * (int(JD)-2451545) - lat) % 360
+
+    # The Hour Angle is the Sidereal Time - Right Ascension
+    H = ST-RA
+
+    # The Azimuth is arctan2(sin(H), cos(H)*sin(lng) - tan(D)*cos(lng))
+    A = atan2Degree(sinDegree(H),
+                    ((cosDegree(H)*sinDegree(lng)) -
+                     (tanDegree(D) * cosDegree(lng))))
+
+    # The altitude of the sun is:
+    # h = arcsin(sin(lng)*sin(D)+cos(lng)*cos(D)*cos(H))
+    h = asinDegree((sinDegree(lng) * sinDegree(D)) +
+                   (cosDegree(lng) * cosDegree(D) * cosDegree(H)))
+
+    # The sun transit time = (RA - D - ST)/360.0
+    m = (RA-D-ST)/360.0
+
+    # When from the AA, when the sun is at -.83 degrees, that is sunrise/set
+    # The hour/angle is :
+    # Ht = acos((sin(-.83) - sin(latitude)*sin(D)) / (cos(lat) * cos(D)))
+    Ht = acosDegree((sinDegree(-.83) - (sinDegree(lat) * sinDegree(D))) /
+                    (cosDegree(lat) * cosDegree(D)))
+
+    # We need to calculate the Julian time for the transit near date.
+    # This is done by determining nx:
+    # nx = (JD-2451545-0.0009) - lng/360
+    # Transit Time = JD+0.0009x(int(nx) - nx)
+    nx = (JD - 2451545-0.0009) - lng/360.0
+    print "JD = %f" % JD
+    print  "nx = %f" % nx
+    Jt = JD+(int(nx) - nx)
+
+    # You can be more accurate by finding Ht' 2 more times by pluggin Ht into
+    # this, but we don't need to.
+    # Convert Ht to hours. For sunrise Ht = 360 - Ht, for sunset, Ht
+    Jrise = Jt - (Ht/360)
+    sunrise_time = JDtoDate(Jrise)
+    Jset = Jt + (Ht/360)
+    sunset_time = JDtoDate(Jset)
+    print "Jtransit: %f" % Jt
+    print sunrise_time
+    print sunset_time
+    return(sunrise_time, sunset_time)
 
 
 @begin.start(auto_convert=True)
@@ -156,7 +268,7 @@ def main(lat='40.7128',
             return
 
     else:
-        a_date = arrow.now()
+        a_date = arrow.utcnow()
     if not lat_validate(lat):
         print "%s is not a valid latitude." % (lat)
         print "Please only use a floating point number betwen -90 and 90."
@@ -167,11 +279,26 @@ def main(lat='40.7128',
         print "Please only use a floating point number betwen -180 and 180."
         return
     try:
-        arrow.get(timezone)
+        arrow.now(timezone)
     except arrow.parser.ParserError:
         print "%s is not a valid timezone." % (timezone)
         print "Please use a valid timezone similar to \'US/Pacific\' or omit", \
             " for local timezone."
         return
 
+    a_date = a_date.replace(hour=12, minute=0, second=0)
 
+    print "Astro Time"
+    (sunrise_time, sunset_time) = astro_time(lat, lng, a_date)
+    print "Sunrise: %s" % sunrise_time.to('local').format("HH:mm:SS")
+    print "Sunset: %s" % sunset_time.to('local').format("HH:mm:SS")
+
+    print "JSON Time"
+    (sunrise_time, sunset_time) = json_time(lat, lng, a_date)
+    sunrise_time.to('local')
+    sunset_time.to('local')
+    print "Sunrise: %s" % sunrise_time.to('local').format("HH:mm:SS")
+    print "Sunset: %s" % sunset_time.to('local').format("HH:mm:SS")
+    print "date: %s" % a_date
+    print "JD : %f" % getJD(a_date)
+    print JDtoDate(2453097)

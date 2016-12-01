@@ -1,2 +1,2 @@
 # sun_time
-Command line tool to print out times for the sunrise and sunset. Uses sunrise-sunset.org.
+Astronomic clock written in python. It is based on the algorithm from  http://www.nrel.gov/docs/fy08osti/34302.pdf. 

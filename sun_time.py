@@ -12,6 +12,8 @@ import arrow
 
 import math
 
+import sun_data
+
 
 def lat_validate(input):
     # this will throw a type error if input is not correct.
@@ -96,6 +98,97 @@ def json_time(lat, lng, date):
         resp.raise_for_status()
 
 
+def earth_periodic_term_sum(TERMS, jme):
+    # This will sum the terms arrays using the following formula:
+    # For = sum(map(A*cos(B+C*jme))) where Lx are primary rows and A,B,C are
+    # parts of the tuple in each array.
+    res_array = []
+    for term_array in TERMS:
+        # term_array should be an array of tuples with 3 values.
+        # Values in L_TERMS work with radians.
+        res_array.append(sum(map(lambda x: x[0] * math.cos(x[1] + (x[2] * jme)),
+                                 term_array)))
+
+    result = 0.0
+    # we should now have an array of the L_Terms summed. Now we need the formula
+    # L = (L0 + L1*JME + L2 *JME^2 + L3 *JME^3 + L4*JME^4 + L5*JME^5) / 10^8
+    for i in range(len(res_array)):
+        result += (res_array[i] * math.pow(jme, i))/math.pow(10.0, 8)
+
+    return result
+
+
+def xy_term_summation(X, terms):
+    result = 0
+    for j in range(len(X)):
+        result += X[j] * terms[j]
+
+    return result
+
+
+def nutation_longitude_and_obliquity(jce):
+    X = [0.0]*5
+    # Mean elongation of the moon from the sun in degrees
+    X[0] = 297.85036 + (445267.111480 * jce) - \
+        (0.0019142 * math.pow(jce, 2)) + (math.pow(jce, 3) / 189474.0)
+
+    # Mean anomaly of the sun(earth) in degrees
+    X[1] = 367.52772 + (35999.050340 * jce) - \
+        (0.001603 * math.pow(jce, 2)) - (math.pow(jce, 3) / 300000.0)
+
+    # mean anomaly of the moon in degrees
+    X[2] = 134.96298 + (477198.867398 * jce) - \
+        (0.0086972 * math.pow(jce, 2)) - (math.pow(jce, 3) / 56250.0)
+
+    # moon's argument of latitude in degrees
+    X[3] = 93.27191 + (483202.017538 * jce) - \
+        (0.0036825 * math.pow(jce, 2)) - (math.pow(jce, 3) / 327270.0)
+
+    X[4] = 125.04452 - (1934.136261 * jce) - \
+        (0.0020708 * math.pow(jce, 2)) - (math.pow(jce, 3) / 450000.0)
+
+    nut_lng = 0
+    obliquity = 0
+
+    for i in range(len(sun_data.Y_TERMS)):
+        xy_term_sum = xy_term_summation(X, sun_data.Y_TERMS[i])
+        pe_term = sun_data.PE_TERMS[i]
+        nut_lng += (pe_term[0] + (pe_term[1] * jce)) * sinDegree(xy_term_sum)
+        obliquity += (pe_term[2] + (pe_term[3] * jce)) * cosDegree(xy_term_sum)
+
+    # the values are in arc seconds, need to convert to degrees
+    return (nut_lng/360000000, obliquity/36000000)
+
+
+def ecliptic_mean_obliquity(jme):
+    u = jme/10.0
+
+    terms = (84381.448, - 4580.93, -1.55, 1999.25, -51.38, -249.67, -39.05,
+             7.12, 27.87, 5.79, 2.45)
+    result = 0
+    for i in range(len(terms)):
+        result += terms[i] * math.pow(u, i)
+    return result
+
+
+def mean_sidreal_time(jd, jc):
+    return 280.46061837 + (360.98564736629 * (jd - 2451545)) + \
+        (0.000387933 * math.pow(jc, 2)) - (math.pow(jc, 3) / 38710000)
+
+
+# This returns the value in radians. perhaps it can be in degrees?
+def sun_right_ascension(sun_lng, obliquity, geoB):
+    return math.atan2((sinDegree(sun_lng) * cosDegree(obliquity) -
+                       (tanDegree(geoB) * sinDegree(obliquity))),
+                      cosDegree(sun_lng))
+
+
+# The declination will be returned in radians. Can I refactor to be degrees?
+def sun_declination(sun_lng, obliquity, geoB):
+    return math.asin((sinDegree(geoB) * cosDegree(obliquity)) +
+                     (sinDegree(obliquity) * sinDegree(sun_lng)))
+
+
 # Returns the Julian Day, which is day from the start of the Julian Calendar.
 # The formula (based on UTC) is:
 # Floor(365.25 *(Year + 4716)) + Floor(30.6001 * (Month + 1)) + Day + B -
@@ -104,7 +197,7 @@ def getJD(date):
     # The date needs to be in UTC
     utcDate = date.to('UTC')
 
-    print "date: %s and utcDate: %s" %(date, utcDate)
+    print "date: %s and utcDate: %s" % (date, utcDate)
     year = utcDate.year
     month = utcDate.month
     day = float(utcDate.day)
@@ -162,93 +255,75 @@ def JDtoDate(JD):
     return arrow.get(dateString)
 
 
-# astro_time calculates the solar position astronomically. It is taken from an
-# algorithm first published here:
 # http://www.nrel.gov/docs/fy08osti/34302.pdf
-def astro_time(latS, lngS, date):
+def astro_time(lat, lng, date):
+    # Convert date to Julian Day
+    # JDE is ephemeris, apparantly Terrestrial time differs from UTC by about 67
+    # seconds.
+    jd = getJD(date)
+    jde = jd + 67/86400.0
+    # Julian Century and millenium too:
+    jc = (jd - 2451545)/36525.0
+    jce = (jde - 2451545)/36525.0
+    jme = jce/10.0
 
-    # First we need the Julian Date.
-    JD = getJD(date)
+    # convert latitude and longitude to floats
+    geo_lat = float(lat)
+    geo_lng = float(lng)
 
-    lat = float(latS)
-    lng = float(lngS)
+    # L and B are in radians, and need to be converted to degrees
+    L = earth_periodic_term_sum(sun_data.L_TERMS, jme)
+    L = math.degrees(L) % 360
+    B = earth_periodic_term_sum(sun_data.B_TERMS, jme)
+    B = math.degrees(B) % 360
+    R = earth_periodic_term_sum(sun_data.R_TERMS, jme)
 
-    # We need to calculate the Mean Anomaly (difference in sun's motion from
-    # a circle. We're going to use the one from AA:
-    # http://aa.quae.nl/en/reken/zonpositie.html#mjx-eqn-eqm-aarde
-    # It should be less than 1% off, so not a huge deal.
-    M = (357.52 + 0.9856 * (JD - 2451545)) % 360
+    print "L = %f B = %f R = %f" % (L, B, R)
 
-    # Need to find the true center vs. the mean center. According to
-    # http://aa.quae.nl/en/reken/zonpositie.html#mjx-eqn-eqm-aarde again, we
-    # need to do the following: Center = C1sinM + C2sin(2M) + C3sin(3M)
-    # with C1 C2 and C3 being constants from a table. Also of note, python uses
-    # radians for trigonometry functions.
-    C = (1.9148 * sinDegree(M)) + (0.02 * sinDegree(2*M)) + \
-        (0.0003 * sinDegree(3*M))
+    # need to calculate the geocentric Longitude (geoL) and latitude (geoB)
+    geoL = (L + 180) % 360
+    geoB = -B
+    print "geo L: %f geo B: %f" % (geoL, geoB)
 
-    # From the astronomy answers page above, the ecliptic longitude of the sun
-    # is L = (M + 102.9373 + C + 180)%360. The modulus 360 is because it's in
-    # degrees.
-    L = (M + 282.9373 + C) % 360
+    # now we need the nuttation in longitude and obliquity
+    (nut_lng, nut_obliquity) = nutation_longitude_and_obliquity(jce)
+    print "Nuttation of Longitude: %f, Obliquity %f" % (nut_lng, nut_obliquity)
 
-    # Next, we need to find the right ascension and the declination.
-    # Per AA, Ascension is approximately L + A2sin(2L) + A4sin(4L) + A6sin(6L)
-    # Per AA, Declination is approximately D1sin(L) + D3sin^3(L) + D5sin^5(L)
-    # A2, A4, A6 and D1, D3, D5 are constants.
-    RA = L - (2.4657*sinDegree(2*L)) + (0.0529*sinDegree(4*L)) -\
-        (0.0014*sinDegree(6*L))
+    # the ecliptic obliquity is the mean obliquity/3600 + the nutation of the
+    # obliquity. in degrees
+    obliquity = ecliptic_mean_obliquity(jme)/3600 + nut_obliquity
+    print "Ecliptic True Obliquity: %f" % obliquity
 
-    D = (22.7908*sinDegree(L)) + (0.5991 * math.pow(sinDegree(L), 3)) + \
-        (0.0492*math.pow(sinDegree(L), 5))
+    # The aberration Correction = -20.4898/(3600*R)
+    aberration_correction = -20.4898/(3600*R)
 
-    # Need to calculate the Mean Sidereal Time for the location, using the
-    # following approximation from AA:
-    # ST = (280.14 + 360.98*(int(JD)-2451545) - lat)mod 360
-    ST = (280.14 + 360.98 * (int(JD)-2451545) - lat) % 360
+    sun_lng = geoL + nut_lng + aberration_correction
 
-    # The Hour Angle is the Sidereal Time - Right Ascension
-    H = ST-RA
+    print "Apparent Sun Longitude: %f" % sun_lng
 
-    # The Azimuth is arctan2(sin(H), cos(H)*sin(lng) - tan(D)*cos(lng))
-    A = atan2Degree(sinDegree(H),
-                    ((cosDegree(H)*sinDegree(lng)) -
-                     (tanDegree(D) * cosDegree(lng))))
+    # Apparent sidreal time at greenwich is = mean sidreal time + nuttation of
+    # longitude * cos(Ecliptic True Obliquity) limited to 360
+    # Mean sidreal time is in degrees.
+    sidreal_time = mean_sidreal_time(jd, jc) + nut_lng * cosDegree(obliquity)
+    sidreal_time = sidreal_time % 360
+    print "Apparent Sidereal Time: %f" % sidreal_time
 
-    # The altitude of the sun is:
-    # h = arcsin(sin(lng)*sin(D)+cos(lng)*cos(D)*cos(H))
-    h = asinDegree((sinDegree(lng) * sinDegree(D)) +
-                   (cosDegree(lng) * cosDegree(D) * cosDegree(H)))
+    # sun right ascension will be in radians, convert to degrees and ensure it's
+    # within 0-360
+    r_asc = sun_right_ascension(sun_lng, obliquity, geoB)
+    r_asc = math.degrees(r_asc) % 360
 
-    # The sun transit time = (RA - D - ST)/360.0
-    m = (RA-D-ST)/360.0
+    print "Right Ascension: %f" % r_asc
 
-    # When from the AA, when the sun is at -.83 degrees, that is sunrise/set
-    # The hour/angle is :
-    # Ht = acos((sin(-.83) - sin(latitude)*sin(D)) / (cos(lat) * cos(D)))
-    Ht = acosDegree((sinDegree(-.83) - (sinDegree(lat) * sinDegree(D))) /
-                    (cosDegree(lat) * cosDegree(D)))
+    # sun declination will be in radians, convert to degrees
+    sun_dec = sun_declination(sun_lng, obliquity, geoB)
+    sun_dec = math.degrees(sun_dec) % 360
+    print "Sun Declination: %f" % sun_dec
 
-    # We need to calculate the Julian time for the transit near date.
-    # This is done by determining nx:
-    # nx = (JD-2451545-0.0009) - lng/360
-    # Transit Time = JD+0.0009x(int(nx) - nx)
-    nx = (JD - 2451545-0.0009) - lng/360.0
-    print "JD = %f" % JD
-    print  "nx = %f" % nx
-    Jt = JD+(int(nx) - nx)
+    # Local hour angle shoudl be in degrees, limited to 0-360
+    H = (sidreal_time + geo_lng - r_asc) % 360
 
-    # You can be more accurate by finding Ht' 2 more times by pluggin Ht into
-    # this, but we don't need to.
-    # Convert Ht to hours. For sunrise Ht = 360 - Ht, for sunset, Ht
-    Jrise = Jt - (Ht/360)
-    sunrise_time = JDtoDate(Jrise)
-    Jset = Jt + (Ht/360)
-    sunset_time = JDtoDate(Jset)
-    print "Jtransit: %f" % Jt
-    print sunrise_time
-    print sunset_time
-    return(sunrise_time, sunset_time)
+    print "Local Hour Angle: %f" % H
 
 
 @begin.start(auto_convert=True)
@@ -285,8 +360,6 @@ def main(lat='40.7128',
         print "Please use a valid timezone similar to \'US/Pacific\' or omit", \
             " for local timezone."
         return
-
-    a_date = a_date.replace(hour=12, minute=0, second=0)
 
     print "Astro Time"
     (sunrise_time, sunset_time) = astro_time(lat, lng, a_date)

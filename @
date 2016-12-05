@@ -76,6 +76,7 @@ def atan2Degree(x, y):
     return math.degrees(math.atan2(x, y))
 
 
+
 def limit_btwn_zero_one(x):
     return x-int(x)
 
@@ -349,8 +350,9 @@ def sun_hour_angle(sun_angle, geo_lat, sun_dec):
     hour_angle = acosDegree((sinDegree(sun_angle) -
                             (sinDegree(geo_lat) * sinDegree(sun_dec))) /
                             (cosDegree(geo_lat) * cosDegree(sun_dec)))
-    # we want the hour angle from 0 to 180
-    return hour_angle % 180
+   # we want the hour angle from 0 to 180
+   return hour_angle % 180
+
 
 
 # http://www.nrel.gov/docs/fy08osti/34302.pdf

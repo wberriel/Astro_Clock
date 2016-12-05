@@ -76,10 +76,6 @@ def atan2Degree(x, y):
     return math.degrees(math.atan2(x, y))
 
 
-def limit_btwn_zero_one(x):
-    return x-int(x)
-
-
 def json_time(lat, lng, date):
 
     payload = {'lat': lat,
@@ -175,7 +171,7 @@ def ecliptic_mean_obliquity(jme):
     return result
 
 
-def mean_sidereal_time(jd, jc):
+def mean_sidreal_time(jd, jc):
     return 280.46061837 + (360.98564736629 * (jd - 2451545)) + \
         (0.000387933 * math.pow(jc, 2)) - (math.pow(jc, 3) / 38710000)
 
@@ -298,13 +294,14 @@ def getJM(jc):
     return jm
 
 
-def get_asc_dec_sidereal(jd):
+def get_asc_and_dec(jd):
     jde = getJDE(jd)
     jc = getJC(jd)
     jce = getJC(jde)
     jme = getJM(jce)
 
     (nut_lng, nut_olbiquity) = nutation_longitude_and_obliquity(jce)
+
 
     # L and B are in radians, and need to be converted to degrees
     L = earth_periodic_term_sum(sun_data.L_TERMS, jme)
@@ -313,44 +310,28 @@ def get_asc_dec_sidereal(jd):
     B = math.degrees(B) % 360
     R = earth_periodic_term_sum(sun_data.R_TERMS, jme)
 
+
     # need to calculate the geocentric Longitude (geoL) and latitude (geoB)
     geoL = (L + 180) % 360
     geoB = -B
 
-    (nut_lng, nut_obliquity) = nutation_longitude_and_obliquity(jce)
 
-    # the ecliptic obliquity is the mean obliquity/3600 + the nutation of the
-    # obliquity. in degrees
     obliquity = ecliptic_mean_obliquity(jme)/3600 + nut_obliquity
+
 
     aberration_correction = -20.4898/(3600*R)
 
     sun_lng = geoL + nut_lng + aberration_correction
 
-    # sun right ascension will be in radians, convert to degrees and ensure it's
-    # within 0-360
+
     r_asc = sun_right_ascension(sun_lng, obliquity, geoB)
     r_asc = math.degrees(r_asc) % 360
 
-    # Apparent sidereal time at greenwich is = mean sidereal time + nuttation of
-    # longitude * cos(Ecliptic True Obliquity) limited to 360
-    # Mean sidereal time is in degrees.
-    sidereal_time = mean_sidereal_time(jd, jc) + nut_lng * cosDegree(obliquity)
-    sidereal_time = sidereal_time % 360
 
-    # sun declination will be in radians, convert to degrees
     sun_dec = sun_declination(sun_lng, obliquity, geoB)
     sun_dec = math.degrees(sun_dec) % 360
 
-    return (r_asc, sun_dec, sidereal_time)
-
-
-def sun_hour_angle(sun_angle, geo_lat, sun_dec):
-    hour_angle = acosDegree((sinDegree(sun_angle) -
-                            (sinDegree(geo_lat) * sinDegree(sun_dec))) /
-                            (cosDegree(geo_lat) * cosDegree(sun_dec)))
-    # we want the hour angle from 0 to 180
-    return hour_angle % 180
+    return (r_asc, sun_dec)
 
 
 # http://www.nrel.gov/docs/fy08osti/34302.pdf
@@ -367,6 +348,7 @@ def astro_time(lat, lng, date):
     # convert latitude and longitude to floats
     geo_lat = float(lat)
     geo_lng = float(lng)
+
 
     # L and B are in radians, and need to be converted to degrees
     L = earth_periodic_term_sum(sun_data.L_TERMS, jme)
@@ -397,12 +379,12 @@ def astro_time(lat, lng, date):
 
     print "Apparent Sun Longitude: %f" % sun_lng
 
-    # Apparent sidereal time at greenwich is = mean sidereal time + nuttation of
+    # Apparent sidreal time at greenwich is = mean sidreal time + nuttation of
     # longitude * cos(Ecliptic True Obliquity) limited to 360
-    # Mean sidereal time is in degrees.
-    sidereal_time = mean_sidereal_time(jd, jc) + nut_lng * cosDegree(obliquity)
-    sidereal_time = sidereal_time % 360
-    print "Apparent Sidereal Time: %f" % sidereal_time
+    # Mean sidreal time is in degrees.
+    sidreal_time = mean_sidreal_time(jd, jc) + nut_lng * cosDegree(obliquity)
+    sidreal_time = sidreal_time % 360
+    print "Apparent Sidereal Time: %f" % sidreal_time
 
     # sun right ascension will be in radians, convert to degrees and ensure it's
     # within 0-360
@@ -417,7 +399,7 @@ def astro_time(lat, lng, date):
     print "Sun Declination: %f" % sun_dec
 
     # Local hour angle shoudl be in degrees, limited to 0-360
-    H = (sidereal_time + geo_lng - r_asc) % 360
+    H = (sidreal_time + geo_lng - r_asc) % 360
 
     print "Local Hour Angle: %f" % H
 
@@ -425,45 +407,12 @@ def astro_time(lat, lng, date):
     # UTC.
     date_array = []
     utc_midnight = date.replace(hour=0, minute=0, second=0, tzinfo='UTC')
-    date_array.append(utc_midnight)
     date_array.append(utc_midnight.replace(days=-1))
+    date_array.append(utc_midnight)
     date_array.append(utc_midnight.replace(days=+1))
 
-    # param array will hold a tuple of the right ascension and declination,
-    # apparent sidereal time for today, yesterday, and tomorrow
-    param_array = []
-
     for date in date_array:
-
-        param_array.append(get_asc_dec_sidereal((getJD(date))))
         print date.format("YYYY-MM-DD HH:mm:ss ZZ")
-
-    # first calculate the approximate transit time in a fraction of a day for
-    # the date in question.
-    approx_transit = (param_array[0][0] - geo_lng - param_array[0][2]) / 360
-
-    # calculate the local hour angle in degrees for the date
-    # We're going to assume the sun_angle is -0.8333 degrees for the sun to be
-    # below the horizon.
-    local_hour_angle = sun_hour_angle(0.8333, geo_lat, param_array[0][1])
-
-    # approximate sunrise in fractions of a day
-    approx_sunrise = approx_transit - (local_hour_angle / 360)
-
-    # approximate sunset time in fraction of a day
-    approx_sunset = approx_transit + (local_hour_angle / 360)
-
-    approx_transit = limit_btwn_zero_one(approx_transit)
-    approx_sunrise = limit_btwn_zero_one(approx_sunrise)
-    approx_sunset = limit_btwn_zero_one(approx_sunset)
-
-    # calculate the greenwich sidereal time in degrees for transit, sunrise,
-    # sunset
-
-    sidereal_transit = param_array[0][2] + (360.986647 * approx_transit)
-    sidereal_sunrise = param_array[0][2] + (360.986647 * approx_sunrise)
-    sidereal_sunset = param_array[0][2] + (360.986647 * approx_sunset)
-
 
 @begin.start(auto_convert=True)
 def main(lat='40.7128',

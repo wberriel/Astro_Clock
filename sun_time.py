@@ -130,9 +130,8 @@ def earth_periodic_term_sum(TERMS, jme):
     for term_array in TERMS:
         # term_array should be an array of tuples with 3 values.
         # Values in L_TERMS work with radians.
-        res_array.append(sum(map(lambda x: x[0] * math.cos(x[1] + (x[2] * jme)),
-                                 term_array)))
-
+        res_array.append(sum(map(lambda x: x[0] * math.cos(x[1] + x[2] * jme),
+                             term_array)))
     result = 0.0
     # we should now have an array of the L_Terms summed. Now we need the formula
     # L = (L0 + L1*JME + L2 *JME^2 + L3 *JME^3 + L4*JME^4 + L5*JME^5) / 10^8
@@ -327,10 +326,13 @@ def get_asc_dec_sidereal(jd):
     (nut_lng, nut_olbiquity) = nutation_longitude_and_obliquity(jce)
 
     # L and B are in radians, and need to be converted to degrees
+    print "L"
     L = earth_periodic_term_sum(sun_data.L_TERMS, jme)
     L = limit_btwn_zero_x(math.degrees(L), 360)
+    print "B"
     B = earth_periodic_term_sum(sun_data.B_TERMS, jme)
-    B = (math.degrees(B) % 360)
+    B = math.degrees(B) % 360
+    print "R"
     R = earth_periodic_term_sum(sun_data.R_TERMS, jme)
 
     # need to calculate the geocentric Longitude (geoL) and latitude (geoB)
@@ -557,8 +559,19 @@ def astro_time(lat, lng, date):
     print "Transit Fraction: %f, Sunrise Fraction: %f, Sunset Fraction: %f" % \
         (transit_fraction, sunrise_fraction, sunset_fraction)
 
-    sunrise_time = JDtoDate(getJD(utc_midnight) + sunrise_fraction)
-    sunset_time = JDtoDate(getJD(utc_midnight) + sunset_fraction)
+    sunrise_hour = 24 * limit_btwn_zero_x(sunrise_fraction, 1)
+    sunrise_minute = 60 * (sunrise_hour - int(sunrise_hour))
+    sunrise_second = 60 * (sunrise_minute - int(sunrise_minute))
+    sunset_hour = 24 * limit_btwn_zero_x(sunset_fraction, 1)
+    sunset_minute = 60 * (sunset_hour - int(sunset_hour))
+    sunset_second = 60 * (sunset_minute - int(sunset_minute))
+    sunrise_time = utc_midnight.replace(hour=int(sunrise_hour),
+                                        minute=int(sunrise_minute),
+                                        second=int(sunrise_second))
+
+    sunset_time = utc_midnight.replace(hour=int(sunset_hour),
+                                       minute=int(sunset_minute),
+                                       second=int(sunset_second))
     return(sunrise_time, sunset_time)
 
 

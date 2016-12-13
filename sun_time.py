@@ -14,9 +14,6 @@ import math
 
 import sun_data
 
-# The current differential between JD and JDE
-DELTA_T = 67
-
 
 def lat_validate(input):
     # this will throw a type error if input is not correct.
@@ -297,8 +294,8 @@ def JDtoDate(JD):
     return arrow.get(dateString)
 
 
-def getJDE(jd):
-    jde = jd + DELTA_T/86400.0
+def getJDE(jd, delta_T):
+    jde = jd + delta_T/86400.0
     return jde
 
 
@@ -316,8 +313,8 @@ def getJM(jc):
     return jm
 
 
-def get_asc_dec_sidereal(jd):
-    jde = getJDE(jd)
+def get_asc_dec_sidereal(jd, delta_T):
+    jde = getJDE(jd, delta_T)
     jc = getJC(jd)
     jce = getJC(jde)
     jme = getJM(jce)
@@ -413,12 +410,12 @@ def day_fraction_to_date(date, day_fraction):
 
 
 # http://www.nrel.gov/docs/fy08osti/34302.pdf
-def astro_time(lat, lng, date):
+def astro_time(lat, lng, date, delta_T):
     # Convecrt date to Julian Day
     # JDE is ephemeris, apparantly Terrestrial time differs from UTC by about 67
     # seconds.
     jd = getJD(date)
-    jde = getJDE(jd)
+    jde = getJDE(jd, delta_T)
     jc = getJC(jd)
     jce = getJC(jde)
     jme = getJM(jce)
@@ -496,7 +493,7 @@ def astro_time(lat, lng, date):
 
     for date in date_array:
 
-        param_array.append(get_asc_dec_sidereal((getJD(date))))
+        param_array.append(get_asc_dec_sidereal((getJD(date)), delta_T))
 
     r_asc_array = [row[0] for row in param_array]
     dec_array = [row[1] for row in param_array]
@@ -528,10 +525,10 @@ def astro_time(lat, lng, date):
     sidereal_array[2] = param_array[0][2] + (360.986647 * approx_sunset)
 
     # The n values represent the approx time + delta T as fraction of a day.
-    DELTA_T_frac = DELTA_T/86400.0
-    n_transit = approx_transit + DELTA_T_frac
-    n_sunrise = approx_sunrise + DELTA_T_frac
-    n_sunset = approx_sunset + DELTA_T_frac
+    delta_T_frac = delta_T/86400.0
+    n_transit = approx_transit + delta_T_frac
+    n_sunrise = approx_sunrise + delta_T_frac
+    n_sunset = approx_sunset + delta_T_frac
 
     n_array = [n_transit, n_sunrise, n_sunset]
 
@@ -560,7 +557,6 @@ def astro_time(lat, lng, date):
         / (360 * cosDegree(prime_array[2][1]) * cosDegree(geo_lat) *
            sinDegree(local_hour_array[2]))
 
-
     transit_time = day_fraction_to_date(utc_midnight, transit_fraction)
     sunrise_time = day_fraction_to_date(utc_midnight, sunrise_fraction)
     sunset_time = day_fraction_to_date(utc_midnight, sunset_fraction)
@@ -573,7 +569,8 @@ def main(lat='40.7128',
          lng='-74.0059',
          date=None,
          printall=False,
-         timezone='local'):
+         timezone='local',
+         deltaT=67):
     "Returns the sunrise and/or sunset time for a given day."
 
     if date:
@@ -604,13 +601,11 @@ def main(lat='40.7128',
         return
 
     print "Astro Time"
-    (sunrise_time, sunset_time) = astro_time(lat, lng, a_date)
-    print "Sunrise: %s" % sunrise_time.to('local').format("HH:mm:SS")
-    print "Sunset: %s" % sunset_time.to('local').format("HH:mm:SS")
+    (sunrise_time, sunset_time) = astro_time(lat, lng, a_date, deltaT)
+    print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
+    print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")
 
     print "JSON Time"
     (sunrise_time, sunset_time) = json_time(lat, lng, a_date)
-    sunrise_time.to('local')
-    sunset_time.to('local')
-    print "Sunrise: %s" % sunrise_time.to('local').format("HH:mm:SS")
-    print "Sunset: %s" % sunset_time.to('local').format("HH:mm:SS")
+    print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
+    print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")

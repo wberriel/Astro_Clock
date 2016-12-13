@@ -92,10 +92,10 @@ def limit_btwn_zero_x(num, x):
 # Limits a value between 0 and 180 preserving quadrant
 def limit_quadrant(x):
     res = x % 360
-    if x <= -180:
-        res = x + 360
-    elif x >= 180:
-        res = x - 360
+    if res <= -180:
+        res += 360
+    elif res >= 180:
+        res -= 360
 
     return res
 
@@ -136,9 +136,9 @@ def earth_periodic_term_sum(TERMS, jme):
     # we should now have an array of the L_Terms summed. Now we need the formula
     # L = (L0 + L1*JME + L2 *JME^2 + L3 *JME^3 + L4*JME^4 + L5*JME^5) / 10^8
     for i in range(len(res_array)):
-        result += (res_array[i] * math.pow(jme, i))/math.pow(10.0, 8)
+        result += res_array[i] * math.pow(jme, i)
 
-    return result
+    return result/math.pow(10.0, 8)
 
 
 def xy_term_summation(X, terms):
@@ -195,8 +195,8 @@ def ecliptic_mean_obliquity(jme):
 
 
 def mean_sidereal_time(jd, jc):
-    return 280.46061837 + (360.98564736629 * (jd - 2451545)) + \
-        (0.000387933 * math.pow(jc, 2)) - (math.pow(jc, 3) / 38710000)
+    return limit_btwn_zero_x(280.46061837 + 360.98564736629 * (jd - 2451545.0) +
+                             jc * jc * (0.000387933 - jc/38710000.0), 360)
 
 
 # This returns the value in radians. perhaps it can be in degrees?
@@ -240,7 +240,6 @@ def getJD(date):
     # The date needs to be in UTC
     utcDate = date.to('UTC')
 
-    print "date: %s and utcDate: %s" % (date, utcDate)
     year = utcDate.year
     month = utcDate.month
     day = float(utcDate.day)
@@ -322,19 +321,14 @@ def get_asc_dec_sidereal(jd):
     jc = getJC(jd)
     jce = getJC(jde)
     jme = getJM(jce)
-
     (nut_lng, nut_olbiquity) = nutation_longitude_and_obliquity(jce)
 
     # L and B are in radians, and need to be converted to degrees
-    print "L"
     L = earth_periodic_term_sum(sun_data.L_TERMS, jme)
     L = limit_btwn_zero_x(math.degrees(L), 360)
-    print "B"
     B = earth_periodic_term_sum(sun_data.B_TERMS, jme)
     B = math.degrees(B) % 360
-    print "R"
     R = earth_periodic_term_sum(sun_data.R_TERMS, jme)
-
     # need to calculate the geocentric Longitude (geoL) and latitude (geoB)
     geoL = (L + 180) % 360
     geoB = -B
@@ -358,11 +352,11 @@ def get_asc_dec_sidereal(jd):
     # longitude * cos(Ecliptic True Obliquity) limited to 360
     # Mean sidereal time is in degrees.
     sidereal_time = mean_sidereal_time(jd, jc) + nut_lng * cosDegree(obliquity)
-    sidereal_time = sidereal_time % 360
+    sidereal_time = limit_btwn_zero_x(sidereal_time, 360)
 
     # sun declination will be in radians, convert to degrees
     sun_dec = sun_declination(sun_lng, obliquity, geoB)
-    sun_dec = math.degrees(sun_dec) % 360
+    sun_dec = limit_btwn_zero_x(math.degrees(sun_dec), 360)
 
     return (r_asc, sun_dec, sidereal_time)
 
@@ -398,8 +392,8 @@ def get_asc_dec_prime(asc_array, dec_array, n_array):
 
     prime_array = []
     for n in n_array:
-        a_prime = asc_array[0] + (n * (a_asc + b_asc + (c_asc * n))) / 2
-        b_prime = dec_array[0] + (n * (a_dec + b_dec + (c_dec * n))) / 2
+        a_prime = asc_array[0] + (n * (a_asc + b_asc + (c_asc * n))) / 2.0
+        b_prime = dec_array[0] + (n * (a_dec + b_dec + (c_dec * n))) / 2.0
         prime_array.append([a_prime, b_prime])
 
     return prime_array
@@ -411,9 +405,16 @@ def sun_altitude(geo_lat, declination, local_hour_angle):
                        cosDegree(local_hour_angle)))
 
 
+def day_fraction_to_date(date, day_fraction):
+    hour = 24 * limit_btwn_zero_x(day_fraction, 1)
+    minute = 60 * (hour - int(hour))
+    second = 60 * (minute - int(minute))
+    return date.replace(hour=int(hour), minute=int(minute), second=int(second))
+
+
 # http://www.nrel.gov/docs/fy08osti/34302.pdf
 def astro_time(lat, lng, date):
-    # Convert date to Julian Day
+    # Convecrt date to Julian Day
     # JDE is ephemeris, apparantly Terrestrial time differs from UTC by about 67
     # seconds.
     jd = getJD(date)
@@ -458,6 +459,8 @@ def astro_time(lat, lng, date):
     # Apparent sidereal time at greenwich is = mean sidereal time + nuttation of
     # longitude * cos(Ecliptic True Obliquity) limited to 360
     # Mean sidereal time is in degrees.
+    print "Mean Sidereal Time: %f" % mean_sidereal_time(jd, jc)
+
     sidereal_time = mean_sidereal_time(jd, jc) + nut_lng * cosDegree(obliquity)
     sidereal_time = limit_btwn_zero_x(sidereal_time, 360)
     print "Apparent Sidereal Time: %f" % sidereal_time
@@ -494,8 +497,9 @@ def astro_time(lat, lng, date):
     for date in date_array:
 
         param_array.append(get_asc_dec_sidereal((getJD(date))))
-        print date.format("YYYY-MM-DD HH:mm:ss ZZ")
 
+    r_asc_array = [row[0] for row in param_array]
+    dec_array = [row[1] for row in param_array]
     # first calculate the approximate transit time in a fraction of a day for
     # the date in question.
     approx_transit = (param_array[0][0] - geo_lng - param_array[0][2]) / 360
@@ -503,7 +507,8 @@ def astro_time(lat, lng, date):
     # calculate the local hour angle in degrees for the date
     # We're going to assume the sun_angle is -0.8333 degrees for the sun to be
     # below the horizon.
-    local_hour_angle = sun_hour_angle(0.8333, geo_lat, param_array[0][1])
+    H0_PRIME = -0.8333369
+    local_hour_angle = sun_hour_angle(H0_PRIME, geo_lat, param_array[0][1])
 
     # approximate sunrise in fractions of a day
     approx_sunrise = approx_transit - (local_hour_angle / 360)
@@ -523,15 +528,16 @@ def astro_time(lat, lng, date):
     sidereal_array[2] = param_array[0][2] + (360.986647 * approx_sunset)
 
     # The n values represent the approx time + delta T as fraction of a day.
-    n_transit = approx_transit + DELTA_T/86400
-    n_sunrise = approx_sunrise + DELTA_T/86400
-    n_sunset = approx_sunset + DELTA_T/86400
+    DELTA_T_frac = DELTA_T/86400.0
+    n_transit = approx_transit + DELTA_T_frac
+    n_sunrise = approx_sunrise + DELTA_T_frac
+    n_sunset = approx_sunset + DELTA_T_frac
 
     n_array = [n_transit, n_sunrise, n_sunset]
 
     # get_asc_dec_prime takes a 3 item array of right ascension, declination,
     # and n time
-    prime_array = get_asc_dec_prime(param_array[0], param_array[1], n_array)
+    prime_array = get_asc_dec_prime(r_asc_array, dec_array, n_array)
 
     local_hour_array = [0.0] * 3
     sun_altitude_array = [0.0] * 3
@@ -542,36 +548,23 @@ def astro_time(lat, lng, date):
                                              prime_array[i][0])
         sun_altitude_array[i] = sun_altitude(geo_lat, prime_array[i][1],
                                              local_hour_array[i])
-
     # Sun Transit in fraction of a day.
     transit_fraction = approx_transit - (local_hour_array[0] / 360)
 
     # Sunrise in fraction of a day.
-    sunrise_fraction = approx_sunrise + (sun_altitude_array[1] - .8333) \
+    sunrise_fraction = approx_sunrise + (sun_altitude_array[1] - H0_PRIME) \
         / (360 * cosDegree(prime_array[1][1]) * cosDegree(geo_lat) *
            sinDegree(local_hour_array[1]))
 
-    sunset_fraction = approx_sunset + (sun_altitude_array[2] - .8333) \
+    sunset_fraction = approx_sunset + (sun_altitude_array[2] - H0_PRIME) \
         / (360 * cosDegree(prime_array[2][1]) * cosDegree(geo_lat) *
            sinDegree(local_hour_array[2]))
 
 
-    print "Transit Fraction: %f, Sunrise Fraction: %f, Sunset Fraction: %f" % \
-        (transit_fraction, sunrise_fraction, sunset_fraction)
+    transit_time = day_fraction_to_date(utc_midnight, transit_fraction)
+    sunrise_time = day_fraction_to_date(utc_midnight, sunrise_fraction)
+    sunset_time = day_fraction_to_date(utc_midnight, sunset_fraction)
 
-    sunrise_hour = 24 * limit_btwn_zero_x(sunrise_fraction, 1)
-    sunrise_minute = 60 * (sunrise_hour - int(sunrise_hour))
-    sunrise_second = 60 * (sunrise_minute - int(sunrise_minute))
-    sunset_hour = 24 * limit_btwn_zero_x(sunset_fraction, 1)
-    sunset_minute = 60 * (sunset_hour - int(sunset_hour))
-    sunset_second = 60 * (sunset_minute - int(sunset_minute))
-    sunrise_time = utc_midnight.replace(hour=int(sunrise_hour),
-                                        minute=int(sunrise_minute),
-                                        second=int(sunrise_second))
-
-    sunset_time = utc_midnight.replace(hour=int(sunset_hour),
-                                       minute=int(sunset_minute),
-                                       second=int(sunset_second))
     return(sunrise_time, sunset_time)
 
 
@@ -621,6 +614,3 @@ def main(lat='40.7128',
     sunset_time.to('local')
     print "Sunrise: %s" % sunrise_time.to('local').format("HH:mm:SS")
     print "Sunset: %s" % sunset_time.to('local').format("HH:mm:SS")
-    print "date: %s" % a_date
-    print "JD : %f" % getJD(a_date)
-    print JDtoDate(2453097)

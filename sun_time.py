@@ -411,73 +411,9 @@ def day_fraction_to_date(date, day_fraction):
 
 # http://www.nrel.gov/docs/fy08osti/34302.pdf
 def astro_time(lat, lng, date, delta_T):
-    # Convecrt date to Julian Day
-    # JDE is ephemeris, apparantly Terrestrial time differs from UTC by about 67
-    # seconds.
-    jd = getJD(date)
-    jde = getJDE(jd, delta_T)
-    jc = getJC(jd)
-    jce = getJC(jde)
-    jme = getJM(jce)
-
     # convert latitude and longitude to floats
     geo_lat = float(lat)
     geo_lng = float(lng)
-
-    # L and B are in radians, and need to be converted to degrees
-    L = earth_periodic_term_sum(sun_data.L_TERMS, jme)
-    L = limit_btwn_zero_x(math.degrees(L), 360)
-    B = earth_periodic_term_sum(sun_data.B_TERMS, jme)
-    B = limit_btwn_zero_x(math.degrees(B), 360)
-    R = earth_periodic_term_sum(sun_data.R_TERMS, jme)
-    print "L = %f B = %f R = %f" % (L, B, R)
-
-    # need to calculate the geocentric Longitude (geoL) and latitude (geoB)
-    geoL = (L + 180) % 360
-    geoB = -B
-    print "geo L: %f geo B: %f" % (geoL, geoB)
-
-    # now we need the nuttation in longitude and obliquity
-    (nut_lng, nut_obliquity) = nutation_longitude_and_obliquity(jce)
-    print "Nuttation of Longitude: %f, Obliquity %f" % (nut_lng, nut_obliquity)
-
-    # the ecliptic obliquity is the mean obliquity/3600 + the nutation of the
-    # obliquity. in degrees
-    obliquity = ecliptic_mean_obliquity(jme)/3600 + nut_obliquity
-    print "Ecliptic True Obliquity: %f" % obliquity
-
-    # The aberration Correction = -20.4898/(3600*R)
-    aberration_correction = -20.4898/(3600*R)
-
-    sun_lng = geoL + nut_lng + aberration_correction
-
-    print "Apparent Sun Longitude: %f" % sun_lng
-
-    # Apparent sidereal time at greenwich is = mean sidereal time + nuttation of
-    # longitude * cos(Ecliptic True Obliquity) limited to 360
-    # Mean sidereal time is in degrees.
-    print "Mean Sidereal Time: %f" % mean_sidereal_time(jd, jc)
-
-    sidereal_time = mean_sidereal_time(jd, jc) + nut_lng * cosDegree(obliquity)
-    sidereal_time = limit_btwn_zero_x(sidereal_time, 360)
-    print "Apparent Sidereal Time: %f" % sidereal_time
-
-    # sun right ascension will be in radians, convert to degrees and ensure it's
-    # within 0-360
-    r_asc = sun_right_ascension(sun_lng, obliquity, geoB)
-    r_asc = limit_btwn_zero_x(math.degrees(r_asc), 360)
-
-    print "Right Ascension: %f" % r_asc
-
-    # sun declination will be in radians, convert to degrees
-    sun_dec = sun_declination(sun_lng, obliquity, geoB)
-    sun_dec = limit_btwn_zero_x(math.degrees(sun_dec), 360)
-    print "Sun Declination: %f" % sun_dec
-
-    # Local hour angle shoudl be in degrees, limited to 0-360
-    H = limit_btwn_zero_x((sidereal_time + geo_lng - r_asc), 360)
-
-    print "Local Hour Angle: %f" % H
 
     # need 3 dates, yesterday midnight, today midnight, tomorrow midnight all in
     # UTC.
@@ -538,6 +474,7 @@ def astro_time(lat, lng, date, delta_T):
 
     local_hour_array = [0.0] * 3
     sun_altitude_array = [0.0] * 3
+
     # need to calculate an updated hour angle and altitude for transit, sunrise,
     # and sunset.
     for i in range(len(prime_array)):
@@ -570,6 +507,7 @@ def main(lat='40.7128',
          date=None,
          printall=False,
          timezone='local',
+         json=False,
          deltaT=67):
     "Returns the sunrise and/or sunset time for a given day."
 
@@ -605,7 +543,8 @@ def main(lat='40.7128',
     print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
     print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")
 
-    print "JSON Time"
-    (sunrise_time, sunset_time) = json_time(lat, lng, a_date)
-    print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
-    print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")
+    if(json):
+        print "JSON Time"
+        (sunrise_time, sunset_time) = json_time(lat, lng, a_date)
+        print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
+        print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")

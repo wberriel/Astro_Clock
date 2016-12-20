@@ -359,11 +359,15 @@ def get_asc_dec_sidereal(jd, delta_T):
 
 
 def sun_hour_angle(sun_angle, geo_lat, sun_dec):
-    hour_angle = acosDegree((sinDegree(sun_angle) -
-                            (sinDegree(geo_lat) * sinDegree(sun_dec))) /
-                            (cosDegree(geo_lat) * cosDegree(sun_dec)))
-    # we want the hour angle from 0 to 180, preserving quadrant
-    return limit_quadrant(hour_angle)
+    value = (sinDegree(sun_angle) - (sinDegree(geo_lat) * sinDegree(sun_dec))) \
+                            / (cosDegree(geo_lat) * cosDegree(sun_dec))
+    # if the value is not between -1 and 1, then the sun will always be above or
+    # below the horizon, so return null.
+    if abs(value) > 1:
+        return None
+    else:
+        # we want the hour angle from 0 to 180, preserving quadrant
+        return limit_quadrant(acosDegree(value))
 
 
 # Limit a value between 0 and 1 if it's absolute value greater than 2
@@ -410,7 +414,7 @@ def day_fraction_to_date(date, day_fraction):
 
 
 # http://www.nrel.gov/docs/fy08osti/34302.pdf
-def astro_time(lat, lng, date, delta_T):
+def astro_time(lat, lng, date, delta_T, H0_PRIME=-0.8333369):
     # convert latitude and longitude to floats
     geo_lat = float(lat)
     geo_lng = float(lng)
@@ -440,8 +444,11 @@ def astro_time(lat, lng, date, delta_T):
     # calculate the local hour angle in degrees for the date
     # We're going to assume the sun_angle is -0.8333 degrees for the sun to be
     # below the horizon.
-    H0_PRIME = -0.8333369
     local_hour_angle = sun_hour_angle(H0_PRIME, geo_lat, param_array[0][1])
+
+    # if the result is None, there is no sunrise or sunset that day. Return None
+    if local_hour_angle is None:
+        return None
 
     # approximate sunrise in fractions of a day
     approx_sunrise = approx_transit - (local_hour_angle / 360)
@@ -540,8 +547,11 @@ def main(lat='40.7128',
 
     print "Astro Time"
     (sunrise_time, sunset_time) = astro_time(lat, lng, a_date, deltaT)
-    print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
-    print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")
+    if sunrise_time is not None:
+        print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
+        print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")
+    else:
+        print "No Sunrise or Sunset on that day."
 
     if(json):
         print "JSON Time"

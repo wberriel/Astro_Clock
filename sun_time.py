@@ -515,7 +515,9 @@ def main(lat='40.7128',
          printall=False,
          timezone='local',
          json=False,
-         deltaT=67):
+         deltaT=67,
+         bluehour=False,
+         goldenhour=False):
     "Returns the sunrise and/or sunset time for a given day."
 
     if date:
@@ -558,3 +560,36 @@ def main(lat='40.7128',
         (sunrise_time, sunset_time) = json_time(lat, lng, a_date)
         print "Sunrise: %s" % sunrise_time.to(timezone).format("HH:mm:ss")
         print "Sunset: %s" % sunset_time.to(timezone).format("HH:mm:ss")
+
+    # Using values from Petapixel to calculate blue hour and golden hour.
+    # https://petapixel.com/2014/06/11/understanding-golden-hour-blue-hour-twilights/
+    # Be sure to adjust for the radius of sun and refraction (-0.8333). The
+    # values are: Blue: -6 to -4 degrees. Gold: -4 to +6 degrees.
+
+    if(goldenhour):
+        print "Golden Hour Times"
+        (sunrise_start, sunset_end) = astro_time(lat, lng, a_date, deltaT,
+                                                 H0_PRIME=-4.8333)
+        (sunrise_end, sunset_start) = astro_time(lat, lng, a_date, deltaT,
+                                                 H0_PRIME=5.1777)
+        print "Sunrise Hour - From: %s To: %s" % \
+            (sunrise_start.to(timezone).format("HH:mm:ss"),
+             sunrise_end.to(timezone).format("HH:mm:ss"))
+
+        print "Sunset Hour - From: %s To: %s" % \
+            (sunset_start.to(timezone).format("HH:mm:ss"),
+             sunset_end.to(timezone).format("HH:mm:ss"))
+    if(bluehour):
+        print "Blue Hour Times"
+
+        (sunrise_end, sunset_start) = astro_time(lat, lng, a_date, deltaT,
+                                                 H0_PRIME=-4.8333)
+        (sunrise_start, sunset_end) = astro_time(lat, lng, a_date, deltaT,
+                                                 H0_PRIME=-6.8333)
+        print "Sunrise Hour - From: %s To: %s" % \
+            (sunrise_start.to(timezone).format("HH:mm:ss"),
+             sunrise_end.to(timezone).format("HH:mm:ss"))
+
+        print "Sunset Hour - From: %s To: %s" % \
+            (sunset_start.to(timezone).format("HH:mm:ss"),
+             sunset_end.to(timezone).format("HH:mm:ss"))
